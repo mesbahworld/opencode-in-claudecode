@@ -138,16 +138,19 @@ function _claude_oc_ProxyRunning {
 }
 
 function px {
+  param([string]$Upstream, [string]$UpstreamKey)
   if (_claude_oc_ProxyRunning) { Write-Host "Proxy already running on port $(_claude_oc_PxPort)."; return }
   if (-not (Test-Path $script:ClaudeOcProxy)) { Write-Host "oc-proxy.js not found at $script:ClaudeOcProxy — run setup."; return }
+  if (-not $Upstream)     { $Upstream     = _claude_oc_Get "OPENCODE_GO_BASE_URL" "" }
+  if (-not $UpstreamKey)  { $UpstreamKey  = _claude_oc_Get "OPENCODE_GO_KEY" "" }
   $port = _claude_oc_PxPort
   $env:PX_PORT = $port
-  $env:PX_UPSTREAM_BASE_URL = _claude_oc_Get "OPENCODE_GO_BASE_URL" ""
-  $env:PX_UPSTREAM_API_KEY  = _claude_oc_Get "OPENCODE_GO_KEY" ""
+  $env:PX_UPSTREAM_BASE_URL = $Upstream
+  $env:PX_UPSTREAM_API_KEY  = $UpstreamKey
   $log = Join-Path $env:TEMP "oc-proxy.log"
   Start-Process -FilePath "node" -ArgumentList @($script:ClaudeOcProxy) -WindowStyle Hidden -RedirectStandardOutput $log
   Start-Sleep -Seconds 1
-  if (_claude_oc_ProxyRunning) { Write-Host "Proxy started on http://127.0.0.1:$port." }
+  if (_claude_oc_ProxyRunning) { Write-Host "Proxy started on http://127.0.0.1:$port -> $Upstream." }
   else { Write-Host "Failed to start proxy. Check $log" }
 }
 
@@ -187,8 +190,9 @@ function claude-px-init {
 
 function claude-litellm {
   $url = _claude_oc_Get "LITELLM_BASE_URL" ""
-  if (_claude_oc_Get "LITELLM_USE_PROXY" $env:LITELLM_USE_PROXY -eq "1") {
-    px
+  $useProxy = _claude_oc_Get "LITELLM_USE_PROXY" $env:LITELLM_USE_PROXY
+  if ($useProxy -eq "1") {
+    px (_claude_oc_Get "LITELLM_BASE_URL" "") (_claude_oc_Get "LITELLM_API_KEY" "")
     if (-not (_claude_oc_ProxyRunning)) { return }
     $url = "http://127.0.0.1:$(_claude_oc_PxPort)"
   }
@@ -202,7 +206,8 @@ function claude-litellm {
 
 function claude-litellm-init {
   $url = _claude_oc_Get "LITELLM_BASE_URL" ""
-  if (_claude_oc_Get "LITELLM_USE_PROXY" $env:LITELLM_USE_PROXY -eq "1") { $url = "http://127.0.0.1:$(_claude_oc_PxPort)" }
+  $useProxy = _claude_oc_Get "LITELLM_USE_PROXY" $env:LITELLM_USE_PROXY
+  if ($useProxy -eq "1") { $url = "http://127.0.0.1:$(_claude_oc_PxPort)" }
   _claude_oc_Pin `
     $url (_claude_oc_Get "LITELLM_API_KEY" "") "" `
     (_claude_oc_Get "LITELLM_OPUS_MODEL" $env:OPUS)   (_claude_oc_Get "LITELLM_OPUS_NAME" $env:OPUS_NAME) `

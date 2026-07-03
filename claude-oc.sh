@@ -102,6 +102,9 @@ claude-oc-init() {
 # ── claude-px: OpenCode Go via local proxy (OpenAI-endpoint models) ───────────
 PX_PORT="${PX_PORT:-8322}"
 
+# Start the local proxy. Optional args: <upstream_base_url> <upstream_api_key>
+# Defaults to opencode-go. Used by `px`, `claude-px`, and `claude-litellm` (when
+# LITELLM_USE_PROXY=1).
 px() {
   if lsof -ti :"$PX_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
     echo "Proxy already running on port $PX_PORT."
@@ -111,13 +114,15 @@ px() {
     echo "oc-proxy.js not found at ~/.claude/oc-proxy.js — run the installer."
     return 1
   fi
+  local upstream="${1:-${OPENCODE_GO_BASE_URL}}"
+  local upstream_key="${2:-${OPENCODE_GO_KEY}}"
   PX_PORT="$PX_PORT" \
-  PX_UPSTREAM_BASE_URL="${OPENCODE_GO_BASE_URL}" \
-  PX_UPSTREAM_API_KEY="${OPENCODE_GO_KEY}" \
+  PX_UPSTREAM_BASE_URL="$upstream" \
+  PX_UPSTREAM_API_KEY="$upstream_key" \
   node "$HOME/.claude/oc-proxy.js" >/tmp/oc-proxy.log 2>&1 &
   sleep 1
   if lsof -ti :"$PX_PORT" -sTCP:LISTEN >/dev/null 2>&1; then
-    echo "Proxy started on http://127.0.0.1:$PX_PORT (PID $!)."
+    echo "Proxy started on http://127.0.0.1:$PX_PORT -> $upstream (PID $!)."
   else
     echo "Failed to start proxy. Check /tmp/oc-proxy.log"; return 1
   fi
@@ -155,16 +160,17 @@ claude-px-init() {
 }
 
 # ── claude-litellm: your LiteLLM gateway ──────────────────────────────────────
-# LiteLLM speaks the Anthropic /v1/messages endpoint directly, so no proxy needed.
-# If your gateway only speaks OpenAI /chat/completions, set LITELLM_USE_PROXY=1
-# and `claude-litellm` will route through the local oc-proxy instead.
+# LiteLLM speaks BOTH /v1/messages (Anthropic) and /v1/chat/completions (OpenAI).
+# LiteLLM translates between them for most upstreams (Groq, Gemini, OpenRouter,
+# Ollama, vLLM all work on /v1/messages). The exception is `opencode-go/*` models
+# — their upstream base URL is the OpenAI endpoint, so LiteLLM's /v1/messages
+# route 404s. For those, set LITELLM_USE_PROXY=1 to route through oc-proxy.js
+# (which calls LiteLLM's /v1/chat/completions instead).
 claude-litellm() {
+  local url="${LITELLM_BASE_URL}"
   if [ "${LITELLM_USE_PROXY:-0}" = "1" ]; then
-    px || return 1
-    local url="http://127.0.0.1:$PX_PORT"
-    PX_UPSTREAM_BASE_URL="${LITELLM_BASE_URL}" PX_UPSTREAM_API_KEY="${LITELLM_API_KEY}" px 2>/dev/null
-  else
-    local url="${LITELLM_BASE_URL}"
+    px "${LITELLM_BASE_URL}" "${LITELLM_API_KEY}" || return 1
+    url="http://127.0.0.1:$PX_PORT"
   fi
   ANTHROPIC_BASE_URL="$url" \
   ANTHROPIC_AUTH_TOKEN="" \
