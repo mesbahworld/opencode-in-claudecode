@@ -1,0 +1,6 @@
+# Local env file (contains API keys — never commit)
+.env
+.DS_Store
+*.log
+/tmp/
+node_modules/
